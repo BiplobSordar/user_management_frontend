@@ -4,7 +4,13 @@ pipeline {
 
     options {
         timestamps()
-        ansiColor('xterm')
+    }
+
+    environment {
+        IMAGE_NAME = "frontend-app"
+        CONTAINER_NAME = "frontend-container"
+        HOST_PORT = "3000"
+        CONTAINER_PORT = "80"
     }
 
     stages {
@@ -44,84 +50,129 @@ pipeline {
             }
         }
 
+        stage('Create Frontend Environment') {
+            steps {
+
+                script {
+
+                    echo "Getting EC2 Public IP..."
+
+                    def publicIP = sh(
+                        script: '''
+TOKEN=$(curl -X PUT http://169.254.169.254/latest/api/token \
+-H "X-aws-ec2-metadata-token-ttl-seconds:21600" -s)
+
+curl -H "X-aws-ec2-metadata-token:$TOKEN" \
+-s http://169.254.169.254/latest/meta-data/public-ipv4
+''',
+                        returnStdout: true
+                    ).trim()
+
+                    env.PUBLIC_IP = publicIP
+                    env.BACKEND_API = "http://${publicIP}:5000/api/v1"
+                    env.FRONTEND_URL = "http://${publicIP}:3000"
+
+                    sh """
+cat > .env.production <<EOF
+VITE_API_BASE_URL=${env.BACKEND_API}
+EOF
+"""
+
+                    sh '''
+                        echo ""
+                        echo "========== Generated .env.production =========="
+                        cat .env.production
+                    '''
+                }
+
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
+
                 sh '''
                     echo ""
                     echo "========== Building Docker Image =========="
 
-                    docker build -t frontend-app .
+                    docker build -t ${IMAGE_NAME} .
 
                     echo ""
-                    echo "Docker image built successfully."
+                    echo "Docker Image Built Successfully."
                 '''
+
             }
         }
 
         stage('Show Docker Images') {
             steps {
+
                 sh '''
                     echo ""
                     echo "========== Docker Images =========="
 
                     docker images
                 '''
+
             }
         }
 
         stage('Stop Existing Container') {
             steps {
+
                 sh '''
                     echo ""
-                    echo "========== Stopping Existing Container =========="
+                    echo "========== Stop Existing Container =========="
 
-                    if docker ps --format '{{.Names}}' | grep -w frontend-container > /dev/null
-                    then
-                        docker stop frontend-container
-                        echo "Container stopped."
+                    if docker ps --format "{{.Names}}" | grep -w ${CONTAINER_NAME}; then
+                        docker stop ${CONTAINER_NAME}
                     else
-                        echo "No running container found."
+                        echo "No running container."
                     fi
                 '''
+
             }
         }
 
         stage('Remove Existing Container') {
             steps {
+
                 sh '''
                     echo ""
-                    echo "========== Removing Existing Container =========="
+                    echo "========== Remove Existing Container =========="
 
-                    if docker ps -a --format '{{.Names}}' | grep -w frontend-container > /dev/null
-                    then
-                        docker rm frontend-container
-                        echo "Container removed."
+                    if docker ps -a --format "{{.Names}}" | grep -w ${CONTAINER_NAME}; then
+                        docker rm ${CONTAINER_NAME}
                     else
-                        echo "No existing container."
+                        echo "No container to remove."
                     fi
                 '''
+
             }
         }
 
         stage('Run Docker Container') {
             steps {
+
                 sh '''
                     echo ""
-                    echo "========== Starting New Container =========="
+                    echo "========== Starting Container =========="
 
                     docker run -d \
-                        --name frontend-container \
-                        -p 3000:80 \
-                        frontend-app
+                        --name ${CONTAINER_NAME} \
+                        -p ${HOST_PORT}:${CONTAINER_PORT} \
+                        ${IMAGE_NAME}
 
                     echo ""
-                    echo "Container started successfully."
+                    echo "Container Started Successfully."
                 '''
+
             }
         }
 
         stage('Verify Deployment') {
             steps {
+
                 sh '''
                     echo ""
                     echo "========== Running Containers =========="
@@ -131,51 +182,73 @@ pipeline {
                     echo ""
                     echo "========== Container Logs =========="
 
-                    docker logs frontend-container || true
+                    docker logs ${CONTAINER_NAME} || true
                 '''
+
             }
         }
 
         stage('Deployment Summary') {
+
             steps {
-                sh '''
-                    echo ""
-                    echo "============================================"
-                    echo "Deployment Completed Successfully"
-                    echo "============================================"
-                    echo "Image      : frontend-app"
-                    echo "Container  : frontend-container"
-                    echo "URL        : http://localhost:3000"
-                    echo "============================================"
-                '''
+
+                echo ""
+                echo "=========================================================="
+                echo "Frontend Deployment Completed Successfully"
+                echo "=========================================================="
+                echo ""
+                echo "Frontend URL"
+                echo "${env.FRONTEND_URL}"
+                echo ""
+                echo "Backend API"
+                echo "${env.BACKEND_API}"
+                echo ""
+                echo "Environment Variable"
+                echo "VITE_API_BASE_URL=${env.BACKEND_API}"
+                echo ""
+                echo "Docker Image     : ${env.IMAGE_NAME}"
+                echo "Container Name   : ${env.CONTAINER_NAME}"
+                echo "Host Port        : ${env.HOST_PORT}"
+                echo "Container Port   : ${env.CONTAINER_PORT}"
+                echo ""
+                echo "=========================================================="
+
             }
+
         }
+
     }
 
     post {
 
         success {
-            echo "Pipeline executed successfully."
+
+            echo "Frontend Pipeline Executed Successfully."
+
         }
 
         failure {
-            echo "Pipeline failed."
+
+            echo "Frontend Pipeline Failed."
 
             sh '''
                 echo ""
-                echo "========== Docker Status =========="
-
+                echo "========== Docker Containers =========="
                 docker ps -a || true
 
                 echo ""
                 echo "========== Docker Images =========="
-
                 docker images || true
             '''
+
         }
 
         always {
-            echo "Pipeline execution finished."
+
+            echo "Pipeline Finished."
+
         }
+
     }
+
 }
