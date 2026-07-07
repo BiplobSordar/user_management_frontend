@@ -37,7 +37,7 @@ const Navbar = () => {
           to={ROUTES.HOME}
           className="text-xl font-bold text-blue-600"
         >
-          User Management I have edit it
+          User Management Auto Deploy using github
         </NavLink>
 
         {/* Desktop Menu */}
