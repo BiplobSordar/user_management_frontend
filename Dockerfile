@@ -1,37 +1,35 @@
-# ===========================
-# Stage 1 - Build Application
-# ===========================
-FROM node:22-alpine AS builder
+# -----------------------------------------------
+# Stage 1: Build Stage
+# -----------------------------------------------
+FROM node:20-alpine AS build
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files first (Docker Layer Caching)
+# ১. dependency ইনস্টলের জন্য package.json ফাইল কপি করা
 COPY package*.json ./
 
-# Install dependencies
+# ২. package-lock.json অনুযায়ী ক্লিন ইনস্টল করা
 RUN npm ci
 
-# Copy application source
+# ৩. Build Time-এ Variable ডিক্লেয়ার করা
+ARG VITE_API_BASE_URL=/api/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
+# ৪. প্রজেক্টের সমস্ত সোর্স কোড কপি করা
 COPY . .
 
-# Build production files
+# ৫. Vite Production Build তৈরি করা (dist ফোল্ডার তৈরি হবে)
 RUN npm run build
 
-
-# ===========================
-# Stage 2 - Production Server
-# ===========================
+# -----------------------------------------------
+# Stage 2: Production Stage (Nginx দিয়ে সার্ভ করা)
+# -----------------------------------------------
 FROM nginx:alpine
 
-# Remove default nginx website
-RUN rm -rf /usr/share/nginx/html/*
+# ১. Vite-এর তৈরি হওয়া dist ফোল্ডারটি Nginx-এর html ডিরেক্টরিতে কপি করা
+COPY --from=build /app/dist /usr/share/nginx/html
 
-# Copy build output from builder stage
-COPY --from=builder /app/dist /usr/share/nginx/html
-
-# Expose nginx port
+# ২. React/Vite Client-side Routing সমর্থনের জন্য Nginx Config (ঐচ্ছিক কিন্তু রিকমেন্ডেড)
 EXPOSE 80
 
-# Start nginx
 CMD ["nginx", "-g", "daemon off;"]
